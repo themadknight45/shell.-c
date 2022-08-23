@@ -208,7 +208,7 @@ void launchProg(char **args, int background){
             args_aux[j-1] = args[j];
             j++;
 	        }
-            // Tthis is new brnach
+            // This is new brnach
             args_aux[j-1]=NULL;
             execvp(args_aux[0],args_aux);
             printf("Command not found");
