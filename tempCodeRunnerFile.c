@@ -1,1 +1,1 @@
-kill(0, SIGKILL);
+%s %s

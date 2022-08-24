@@ -1,3 +1,22 @@
+/*
+  * simple-c-shell.c
+  * 
+  * Copyright (c) 2013 Juan Manuel Reyes
+  * 
+  * This program is free software: you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License as published by
+  * the Free Software Foundation, either version 3 of the License, or
+  * (at your option) any later version.
+  * 
+  * This program is distributed in the hope that it will be useful,
+  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  * GNU General Public License for more details.
+  * 
+  * You should have received a copy of the GNU General Public License
+  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,45 +28,29 @@
 #include <fcntl.h>
 #include <termios.h>
 #include "util.h"
-#define clear() printf("\033[H\033[J")
+
 #define LIMIT 256 // max number of tokens for a command
 #define MAXLINE 1024 // max number of characters from user input
 #define TRUE 1
 #define FALSE !TRUE
-char testCmd[100];
-char usrCmd[100];
+
 // Shell pid, pgid, terminal modes
 static pid_t GBSH_PID;
 static pid_t GBSH_PGID;
 static int GBSH_IS_INTERACTIVE;
 static struct termios GBSH_TMODES;
-static int err=0;
+
 static char* currentDirectory;
 extern char** environ;
-static int h_index=0;
+
 struct sigaction act_child;
 struct sigaction act_int;
-int no_reprint_prmpt;
-pid_t pid;
-const char *cmd_history[1024];
-const pid_t *child_process[1024];
-static int process_index=0;
 
-int valid(char testCmd[256],char usrCmd[256]){
-	strncat(testCmd, usrCmd, 93);
-	size_t size = 0;
-	char path[100];
-	FILE *p = popen( testCmd , "r");
-	if(p) {
-		while(fgets(path, sizeof(path), p) != NULL) {
-					size= strlen(path);
-		}
-	}
-	if(size==0){
-		return 0;
-	}
-	return 1;
-}
+int no_reprint_prmpt;
+
+pid_t pid;
+
+
 /**
  * SIGNAL HANDLERS
  */
@@ -55,10 +58,15 @@ int valid(char testCmd[256],char usrCmd[256]){
 void signalHandler_child(int p);
 // signal handler for SIGINT
 void signalHandler_int(int p);
+
+
+int changeDirectory(char * args[]);
+/**
+ * Function used to initialize our shell. We used the approach explained in
+ * http://www.gnu.org/software/libc/manual/html_node/Initializing-the-Shell.html
+ */
 void init(){
 		// See if we are running interactively
-        clear();
-		// kill(0, SIGKILL);
         GBSH_PID = getpid();
         // The shell is interactive if STDIN is the terminal  
         GBSH_IS_INTERACTIVE = isatty(STDIN_FILENO);  
@@ -109,6 +117,18 @@ void init(){
 }
 
 /**
+ * Method used to print the welcome screen of our shell
+ */
+void welcomeScreen(){
+        printf("\n\t============================================\n");
+        printf("\t               Simple C Shell\n");
+        printf("\t--------------------------------------------\n");
+        printf("\t             Licensed under GPLv3:\n");
+        printf("\t============================================\n");
+        printf("\n\n");
+}
+
+/**
  * SIGNAL HANDLERS
  */
 
@@ -141,9 +161,31 @@ void signalHandler_int(int p){
  *	Displays the prompt for the shell
  */
 void shellPrompt(){
-	printf("%s~$ ",getcwd(currentDirectory, 1024));
+	// We print the prompt in the form "<user>@<host> <cwd> >"
+	char hostn[1204] = "";
+	gethostname(hostn, sizeof(hostn));
+	printf("%s@%s %s > ", getenv("LOGNAME"), hostn, getcwd(currentDirectory, 1024));
 }
 
+/**
+ * Method to change directory
+ */
+int changeDirectory(char* args[]){
+	// If we write no path (only 'cd'), then go to the home directory
+	if (args[1] == NULL) {
+		chdir(getenv("HOME")); 
+		return 1;
+	}
+	// Else we change the directory to the one specified by the 
+	// argument, if possible
+	else{ 
+		if (chdir(args[1]) == -1) {
+			printf(" %s: no such directory\n", args[1]);
+            return -1;
+		}
+	}
+	return 0;
+}
 
 /**
  * Method used to manage the environment variables with different
@@ -194,14 +236,7 @@ int manageEnviron(char * args[], int option){
 				printf("%s", "The variable does not exist\n");
 			}
 		break;
-		case 3:
-			if(getenv(args[1])==NULL){
-				printf("%s","No such variable exist\n");
-			}
-			else{
-				printf("%s\n",getenv(args[1]));
-			}
-		break;
+			
 			
 	}
 	return 0;
@@ -212,6 +247,8 @@ int manageEnviron(char * args[], int option){
 * or in the foreground
 */ 
 void launchProg(char **args, int background){	 
+	 int err = -1;
+	 
 	 if((pid=fork())==-1){
 		 printf("Child process could not be created\n");
 		 return;
@@ -220,42 +257,77 @@ void launchProg(char **args, int background){
 	if(pid==0){
 		// We set the child to ignore SIGINT signals (we want the parent
 		// process to handle them with signalHandler_int)	
-		
 		signal(SIGINT, SIG_IGN);
+		
 		// We set parent=<pathname>/simple-c-shell as an environment variable
 		// for the child
 		setenv("parent",getcwd(currentDirectory, 1024),1);	
 		
 		// If we launch non-existing commands we end the process
-        if(strcmp(args[0],"&") == 0){
-            char *args_aux[256];int j=1;
-            while ( args[j] != NULL){
-            args_aux[j-1] = args[j];
-            j++;
-	        }
-            args_aux[j-1]=NULL;
-            execvp(args_aux[0],args_aux);
-            printf("Command not found");
-			kill(getpid(),SIGTERM);
-        }
-        else{
-            err=execvp(args[0],args);
+		if (execvp(args[0],args)==err){
 			printf("Command not found");
 			kill(getpid(),SIGTERM);
-        }
+		}
 	 }
-     
-        // printf("%i",err);
-		child_process[process_index]=pid;
-		process_index++;
-		// printf("%d %d",pid,process_index);
+	 
+	 // The following will be executed by the parent
+	 
+	 // If the process is not requested to be in background, we wait for
+	 // the child to finish.
 	 if (background == 0){
 		 waitpid(pid,NULL,0);
 	 }else{
+		 // In order to create a background process, the current process
+		 // should just skip the call to wait. The SIGCHILD handler
+		 // signalHandler_child will take care of the returning values
+		 // of the childs.
 		 printf("Process created with PID: %d\n",pid);
 	 }	 
 }
  
+/**
+* Method used to manage I/O redirection
+*/ 
+void fileIO(char * args[], char* inputFile, char* outputFile, int option){
+	 
+	int err = -1;
+	
+	int fileDescriptor; // between 0 and 19, describing the output or input file
+	
+	if((pid=fork())==-1){
+		printf("Child process could not be created\n");
+		return;
+	}
+	if(pid==0){
+		// Option 0: output redirection
+		if (option == 0){
+			// We open (create) the file truncating it at 0, for write only
+			fileDescriptor = open(outputFile, O_CREAT | O_TRUNC | O_WRONLY, 0600); 
+			// We replace de standard output with the appropriate file
+			dup2(fileDescriptor, STDOUT_FILENO); 
+			close(fileDescriptor);
+		// Option 1: input and output redirection
+		}else if (option == 1){
+			// We open file for read only (it's STDIN)
+			fileDescriptor = open(inputFile, O_RDONLY, 0600);  
+			// We replace de standard input with the appropriate file
+			dup2(fileDescriptor, STDIN_FILENO);
+			close(fileDescriptor);
+			// Same as before for the output file
+			fileDescriptor = open(outputFile, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+			dup2(fileDescriptor, STDOUT_FILENO);
+			close(fileDescriptor);		 
+		}
+		 
+		setenv("parent",getcwd(currentDirectory, 1024),1);
+		
+		if (execvp(args[0],args)==err){
+			printf("err");
+			kill(getpid(),SIGTERM);
+		}		 
+	}
+	waitpid(pid,NULL,0);
+}
 
 /**
 * Method used to manage pipes.
@@ -403,131 +475,132 @@ void pipeHandler(char * args[]){
 * Method used to handle the commands entered via the standard input
 */ 
 int commandHandler(char * args[]){
-	// int x=getpid();
-	// printf("%i",x);
 	int i = 0;
 	int j = 0;
+	
+	int fileDescriptor;
+	int standardOut;
+	
+	int aux;
 	int background = 0;
-
+	
 	char *args_aux[256];
+	
+	// We look for the special characters and separate the command itself
+	// in a new array for the arguments
 	while ( args[j] != NULL){
+		if ( (strcmp(args[j],">") == 0) || (strcmp(args[j],"<") == 0) || (strcmp(args[j],"&") == 0)){
+			break;
+		}
 		args_aux[j] = args[j];
 		j++;
 	}
-
-    char *s;
-	s=strchr(args[0],'=');
-	if(s!=NULL){
-		char *envi =   "setenv ";
-		char *arguments= args[0];
-		char command[MAXLINE];
-		int k=0;
-		for(k=0;k<7;k++){
-			command[k]=envi[k];
-			// printf("%c",command[k]);
-		}
-		
-		while(arguments[k-7]!=NULL){
-			if(arguments[k-7]=='='){
-				command[k]=' ';
-			}
-			else{
-				command[k]=arguments[k-7];
-			}
-			k++;
-		}
-		char * tokens[LIMIT]; 
-		int numTokens;
-		if((tokens[0] = strtok(command," \n\t")) == NULL) return 1;
-		numTokens = 1;
-		while((tokens[numTokens] = strtok(NULL, " \n\t")) != NULL) numTokens++;
-		manageEnviron(tokens,1);
-		return 1;
-	}
-	 
-	if(strcmp(args[0],"echo") == 0 )	{
-		char *s;
-		s=strchr(args[1],'$');
-		if(s!=NULL){
-			char *envi =   "getenv ";
-			char *arguments= args[1];
-			char command[MAXLINE];
-			int k=0;
-			for(k=0;k<7;k++){
-				command[k]=envi[k];
-			}
-			while(arguments[k-6]!=NULL){
-				command[k]=arguments[k-6];
-				k++;
-			}
-			char * tokens[LIMIT]; 
-			int numTokens;
-			if((tokens[0] = strtok(command," \n\t")) == NULL) return 1;
-			numTokens = 1;
-			while((tokens[numTokens] = strtok(NULL, " \n\t")) != NULL) numTokens++;
-			manageEnviron(tokens,3);
-			return 1;
-		}
-	} 
-
+	
 	// 'exit' command quits the shell
 	if(strcmp(args[0],"exit") == 0) exit(0);
+	// 'pwd' command prints the current directory
+ 	else if (strcmp(args[0],"pwd") == 0){
+		if (args[j] != NULL){
+			// If we want file output
+			if ( (strcmp(args[j],">") == 0) && (args[j+1] != NULL) ){
+				fileDescriptor = open(args[j+1], O_CREAT | O_TRUNC | O_WRONLY, 0600); 
+				// We replace de standard output with the appropriate file
+				standardOut = dup(STDOUT_FILENO); 	// first we make a copy of stdout
+													// because we'll want it back
+				dup2(fileDescriptor, STDOUT_FILENO); 
+				close(fileDescriptor);
+				printf("%s\n", getcwd(currentDirectory, 1024));
+				dup2(standardOut, STDOUT_FILENO);
+			}
+		}else{
+			printf("%s\n", getcwd(currentDirectory, 1024));
+		}
+	} 
+ 	// 'clear' command clears the screen
 	else if (strcmp(args[0],"clear") == 0) system("clear");
+	// 'cd' command to change directory
+	else if (strcmp(args[0],"cd") == 0) changeDirectory(args);
 	// 'environ' command to list the environment variables
-
-	else if (strcmp(args[0],"env") == 0){
-		manageEnviron(args,0);
+	else if (strcmp(args[0],"environ") == 0){
+		if (args[j] != NULL){
+			// If we want file output
+			if ( (strcmp(args[j],">") == 0) && (args[j+1] != NULL) ){
+				fileDescriptor = open(args[j+1], O_CREAT | O_TRUNC | O_WRONLY, 0600); 
+				// We replace de standard output with the appropriate file
+				standardOut = dup(STDOUT_FILENO); 	// first we make a copy of stdout
+													// because we'll want it back
+				dup2(fileDescriptor, STDOUT_FILENO); 
+				close(fileDescriptor);
+				manageEnviron(args,0);
+				dup2(standardOut, STDOUT_FILENO);
+			}
+		}else{
+			manageEnviron(args,0);
+		}
 	}
 	// 'setenv' command to set environment variables
 	else if (strcmp(args[0],"setenv") == 0) manageEnviron(args,1);
 	// 'unsetenv' command to undefine environment variables
 	else if (strcmp(args[0],"unsetenv") == 0) manageEnviron(args,2);
-	else if (strcmp(args[0],"getenv") == 0) manageEnviron(args,3);
-    else if (strcmp(args[0],"cmd_history")==0){
-        //printf("%i",h_index);
-        for(int i=0;i<5;i++){
-            if(h_index-i-1<0)break;
-            printf("%s",cmd_history[h_index-i-1]);
-            printf("\n");
-        }
-        return 1; 
-    }
-	else if(strcmp(args[0],"ps_history")==0){
-		for(int i=process_index-1;i>=0;i--){
-			printf("%ld",child_process[i]);
-			if(kill(child_process[i],0)==0){
-				printf(" Running \n");
-			}
-			else{
-				printf(" Stopped \n");
-			}
-		}
-	}
-
 	else{
-		while (args[i] != NULL ){
+		// If none of the preceding commands were used, we invoke the
+		// specified program. We have to detect if I/O redirection,
+		// piped execution or background execution were solicited
+		while (args[i] != NULL && background == 0){
+			// If background execution was solicited (last argument '&')
+			// we exit the loop
 			if (strcmp(args[i],"&") == 0){
 				background = 1;
+			// If '|' is detected, piping was solicited, and we call
+			// the appropriate method that will handle the different
+			// executions
 			}else if (strcmp(args[i],"|") == 0){
 				pipeHandler(args);
+				return 1;
+			// If '<' is detected, we have Input and Output redirection.
+			// First we check if the structure given is the correct one,
+			// and if that is the case we call the appropriate method
+			}else if (strcmp(args[i],"<") == 0){
+				aux = i+1;
+				if (args[aux] == NULL || args[aux+1] == NULL || args[aux+2] == NULL ){
+					printf("Not enough input arguments\n");
+					return -1;
+				}else{
+					if (strcmp(args[aux+1],">") != 0){
+						printf("Usage: Expected '>' and found %s\n",args[aux+1]);
+						return -2;
+					}
+				}
+				fileIO(args_aux,args[i+1],args[i+3],1);
+				return 1;
+			}
+			// If '>' is detected, we have output redirection.
+			// First we check if the structure given is the correct one,
+			// and if that is the case we call the appropriate method
+			else if (strcmp(args[i],">") == 0){
+				if (args[i+1] == NULL){
+					printf("Not enough input arguments\n");
+					return -1;
+				}
+				fileIO(args_aux,NULL,args[i+1],0);
 				return 1;
 			}
 			i++;
 		}
+		// We launch the program with our method, indicating if we
+		// want background execution or not
 		args_aux[i] = NULL;
-		char testCmd[256];char usrCmd[256];
-		if (strcmp(args[0],"&") == 0){
-			strcpy(usrCmd,args[1]);
-		}
-		else{
-			strcpy(usrCmd,args[0]);
-		}
-		strcpy(testCmd,"which ");
-		if(valid(testCmd,usrCmd)==0){
-			printf("CommandNotFound \n\n");
-			return 1;
-		}
-		launchProg(args,background);
+		launchProg(args_aux,background);
+		
+		/**
+		 * For the part 1.e, we only had to print the input that was not
+		 * 'exit', 'pwd' or 'clear'. We did it the following way
+		 */
+		//	i = 0;
+		//	while(args[i]!=NULL){
+		//		printf("%s\n", args[i]);
+		//		i++;
+		//	}
 	}
 return 1;
 }
@@ -537,32 +610,49 @@ return 1;
 * Main method of our shell
 */ 
 int main(int argc, char *argv[], char ** envp) {
-	
-	
-	char line[MAXLINE]; 
-	char * tokens[LIMIT]; 
+	char line[MAXLINE]; // buffer for the user input
+	char * tokens[LIMIT]; // array for the different tokens in the command
 	int numTokens;
+		
+	no_reprint_prmpt = 0; 	// to prevent the printing of the shell
+							// after certain methods
+	pid = -10; // we initialize pid to an pid that is not possible
 	
-	no_reprint_prmpt = 0; 	
-	pid = -10; 
+	// We call the method of initialization and the welcome screen
 	init();
+	welcomeScreen();
+    
+    // We set our extern char** environ to the environment, so that
+    // we can treat it later in other methods
 	environ = envp;
+	
+	// We set shell=<pathname>/simple-c-shell as an environment variable for
+	// the child
 	setenv("shell",getcwd(currentDirectory, 1024),1);
+	
+	// Main loop, where the user input will be read and the prompt
+	// will be printed
 	while(TRUE){
-		// int x=getpid();
-		// printf("%ihduufh",x);
-        err=0;
+		// We print the shell prompt if necessary
 		if (no_reprint_prmpt == 0) shellPrompt();
 		no_reprint_prmpt = 0;
+		
+		// We empty the line buffer
 		memset ( line, '\0', MAXLINE );
+
+		// We wait for user input
 		fgets(line, MAXLINE, stdin);
+	
+		// If nothing is written, the loop is executed again
 		if((tokens[0] = strtok(line," \n\t")) == NULL) continue;
+		
+		// We read all the tokens of the input and pass it to our
+		// commandHandler as the argument
 		numTokens = 1;
 		while((tokens[numTokens] = strtok(NULL, " \n\t")) != NULL) numTokens++;
-        size_t size = sizeof(line) / sizeof(line[0]);
-        cmd_history[h_index]=strndup(line, size);
-        h_index++;
+		
 		commandHandler(tokens);
+		
 	}          
 
 	exit(0);
