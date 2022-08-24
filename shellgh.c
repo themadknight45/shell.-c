@@ -10,13 +10,12 @@
 #include <termios.h>
 #include "util.h"
 #define clear() printf("\033[H\033[J")
-
 #define LIMIT 256 // max number of tokens for a command
 #define MAXLINE 1024 // max number of characters from user input
-
 #define TRUE 1
 #define FALSE !TRUE
-
+char testCmd[100];
+char usrCmd[100];
 // Shell pid, pgid, terminal modes
 static pid_t GBSH_PID;
 static pid_t GBSH_PGID;
@@ -30,7 +29,25 @@ struct sigaction act_child;
 struct sigaction act_int;
 int no_reprint_prmpt;
 pid_t pid;
-const char *history[1024];
+const char *cmd_history[1024];
+const pid_t *child_process[1024];
+static int process_index=0;
+
+int valid(char testCmd[256],char usrCmd[256]){
+	strncat(testCmd, usrCmd, 93);
+	size_t size = 0;
+	char path[100];
+	FILE *p = popen( testCmd , "r");
+	if(p) {
+		while(fgets(path, sizeof(path), p) != NULL) {
+					size= strlen(path);
+		}
+	}
+	if(size==0){
+		return 0;
+	}
+	return 1;
+}
 /**
  * SIGNAL HANDLERS
  */
@@ -41,6 +58,7 @@ void signalHandler_int(int p);
 void init(){
 		// See if we are running interactively
         clear();
+		// kill(0, SIGKILL);
         GBSH_PID = getpid();
         // The shell is interactive if STDIN is the terminal  
         GBSH_IS_INTERACTIVE = isatty(STDIN_FILENO);  
@@ -195,8 +213,8 @@ void launchProg(char **args, int background){
 	if(pid==0){
 		// We set the child to ignore SIGINT signals (we want the parent
 		// process to handle them with signalHandler_int)	
-		signal(SIGINT, SIG_IGN);
 		
+		signal(SIGINT, SIG_IGN);
 		// We set parent=<pathname>/simple-c-shell as an environment variable
 		// for the child
 		setenv("parent",getcwd(currentDirectory, 1024),1);	
@@ -208,7 +226,6 @@ void launchProg(char **args, int background){
             args_aux[j-1] = args[j];
             j++;
 	        }
-            // This is new brnach
             args_aux[j-1]=NULL;
             execvp(args_aux[0],args_aux);
             printf("Command not found");
@@ -222,6 +239,9 @@ void launchProg(char **args, int background){
 	 }
      
         // printf("%i",err);
+		child_process[process_index]=pid;
+		process_index++;
+		// printf("%d %d",pid,process_index);
 	 if (background == 0){
 		 waitpid(pid,NULL,0);
 	 }else{
@@ -378,35 +398,76 @@ void pipeHandler(char * args[]){
 int commandHandler(char * args[]){
 	int i = 0;
 	int j = 0;
-	int aux;
 	int background = 0;
-	
+
+/*
+	int l = 0
+	while ( args[l] != NULL){
+		printf(args[l]);
+		l++;
+	}
+	return 1;
+*/
+
+	// char *ptr = ...;  /* initialize pointer as needed */ 
+	// char array[sizeof(char*)]; 
+	// memcpy(array, &ptr, sizeof(char*)); 
+
 	char *args_aux[256];
 	while ( args[j] != NULL){
 		args_aux[j] = args[j];
 		j++;
 	}
-	
+/*
+	char destination[] = "setenv ";
+    char line[sizeof(char*)] ;
+	memcpy(line, &args, sizeof(char*)); 
+	printf("%s",line);
+    strcat(destination,line);
+	printf("%s",destination);
+	char *s;
+	s = strchr (destination,'=');
+	if(s!=NULL){
+		char * tokens[LIMIT]; 
+		const char s2[2] = "=";
+		tokens[0] = strtok(line,s2);
+		manageEnviron(tokens,1);
+		return 1;
+	}
+*/
+
 	// 'exit' command quits the shell
 	if(strcmp(args[0],"exit") == 0) exit(0);
 	else if (strcmp(args[0],"clear") == 0) system("clear");
 	// 'environ' command to list the environment variables
-	else if (strcmp(args[0],"environ") == 0){
-		manageEnviron(args,0);
-	}
-	// 'setenv' command to set environment variables
-	else if (strcmp(args[0],"setenv") == 0) manageEnviron(args,1);
-	// 'unsetenv' command to undefine environment variables
-	else if (strcmp(args[0],"unsetenv") == 0) manageEnviron(args,2);
-    else if (strcmp(args[0],"ps_history")==0){
+	// else if (strcmp(args[0],"environ") == 0){
+	// 	manageEnviron(args,0);
+	// }
+	// // 'setenv' command to set environment variables
+	// else if (strcmp(args[0],"setenv") == 0) manageEnviron(args,1);
+	// // 'unsetenv' command to undefine environment variables
+	// else if (strcmp(args[0],"unsetenv") == 0) manageEnviron(args,2);
+    else if (strcmp(args[0],"cmd_history")==0){
         //printf("%i",h_index);
         for(int i=0;i<5;i++){
             if(h_index-i-1<0)break;
-            printf("%s",history[h_index-i-1]);
+            printf("%s",cmd_history[h_index-i-1]);
             printf("\n");
         }
         return 1; 
     }
+	else if(strcmp(args[0],"ps_history")==0){
+		for(int i=process_index-1;i>=0;i--){
+			printf("%ld",child_process[i]);
+			if(kill(child_process[i],0)==0){
+				printf(" Running \n");
+			}
+			else{
+				printf(" Stopped \n");
+			}
+		}
+	}
+
 	else{
 		while (args[i] != NULL ){
 			if (strcmp(args[i],"&") == 0){
@@ -418,6 +479,18 @@ int commandHandler(char * args[]){
 			i++;
 		}
 		args_aux[i] = NULL;
+		char testCmd[256];char usrCmd[256];
+		if (strcmp(args[0],"&") == 0){
+			strcpy(usrCmd,args[1]);
+		}
+		else{
+			strcpy(usrCmd,args[0]);
+		}
+		strcpy(testCmd,"which ");
+		if(valid(testCmd,usrCmd)==0){
+			printf("CommandNotFound \n\n");
+			return 1;
+		}
 		launchProg(args,background);
 	}
 return 1;
@@ -447,7 +520,7 @@ int main(int argc, char *argv[], char ** envp) {
 		numTokens = 1;
 		while((tokens[numTokens] = strtok(NULL, " \n\t")) != NULL) numTokens++;
         size_t size = sizeof(line) / sizeof(line[0]);
-        history[h_index]=strndup(line, size);
+        cmd_history[h_index]=strndup(line, size);
         h_index++;
 		commandHandler(tokens);
 	}          

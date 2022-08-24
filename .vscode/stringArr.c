@@ -1,20 +1,65 @@
+#include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <sys/types.h>
+pid_t proc_find(const char* name) 
+{
+    DIR* dir;
+    struct dirent* ent;
+    char* endptr;
+    char buf[512];
 
-int main() {
-    char* command = "ls";
-    char* argument_list[] = {"ls", NULL};
-
-    printf("Before calling execvp()\n");
-
-    // Calling the execvp() system call
-    int status_code = execvp(command, argument_list);
-
-    if (status_code == -1) {
-        printf("Process did not terminate correctly\n");
+    if (!(dir = opendir("/proc"))) {
+        perror("can't open /proc");
+        return -1;
     }
 
-    printf("This line will not be printed if execvp() runs correctly\n");
+    while((ent = readdir(dir)) != NULL) {
+        /* if endptr is not a null character, the directory is not
+         * entirely numeric, so ignore it */
+        long lpid = strtol(ent->d_name, &endptr, 10);
+        if (*endptr != '\0') {
+            continue;
+        }
+        /* try to open the cmdline file */
+        snprintf(buf, sizeof(buf), "/proc/%ld/cmdline", lpid);
+        FILE* fp = fopen(buf, "r");
 
-    return 0;
+        if (fp) {
+            if (fgets(buf, sizeof(buf), fp) != NULL) {
+                /* check the first token in the file, the program name */
+                char* first = strtok(buf, " ");
+                if (!strcmp(first, name)) {
+                    fclose(fp);
+                    closedir(dir);
+                    return (pid_t)lpid;
+                }
+            }
+            fclose(fp);
+        }
+
+    }
+     closedir(dir);
+    return -1;
+}
+
+
+int main(int argc, char* argv[]) 
+{
+    if (argc == 1) {
+        printf("usage: %s name1 name2 ...\n", argv[0]);
+        return 1;
+    }
+
+    int i;
+    for(int i = 1; i < argc; ++i) {
+        pid_t pid = proc_find(argv[i]);
+        if (pid == -1) {
+            printf("%s: not found\n", argv[i]);
+        } else {
+            printf("%s: %d\n", argv[i], pid);
+        }
+    }
 }

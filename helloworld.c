@@ -1,28 +1,21 @@
-#include <unistd.h>
 #include <stdio.h>
-#include <limits.h>
-#include <signal.h>
-
-static volatile int keepRunning = 1;
-void intHandler(int dummy) {
-   keepRunning = 0 ;
-}
-
-void printDirectory()
-{
-    char cwd[1024];
-    getcwd(cwd, sizeof(cwd));
-    printf("%s~$ ", cwd);
-}
-
+#include <string.h>
+char testCmd[100];
+char usrCmd[100];
 int main() {
-	while(1){
-	    printDirectory();
-	    char *buffer=NULL;
-	    size_t n;
-	    signal(SIGINT, intHandler);
-	    getline(&buffer,&n,stdin);
+	strcpy(testCmd, "which ");
+	strcpy(usrCmd, "ls");
+	strncat(testCmd, usrCmd, 93);
+	size_t size = 0;
+	char path[100];
+	FILE *p = popen( testCmd , "r");
+	if(p ) {
+		while(fgets(path, sizeof(path), p) != NULL) {
+					size= strlen(path);
+		}
 	}
-	return 0;
+	if(size==0){
+		printf("No Cmd ");
+	}
 }
 
