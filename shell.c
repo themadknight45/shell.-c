@@ -8,7 +8,6 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <termios.h>
-// #include "util.h"
 #define clear() printf("\033[H\033[J")
 #define LIMIT 256 // max number of tokens for a command
 #define MAXLINE 1024 // max number of characters from user input
@@ -252,7 +251,7 @@ void launchProg(char **args, int background){
 	 if (background == 0){
 		 waitpid(pid,NULL,0);
 	 }else{
-		 printf("Process created with PID: %d\n\n",pid);
+		//  printf("Process created with PID: %d\n\n",pid);
 	 }	 
 }
  
@@ -326,7 +325,10 @@ void pipeHandler(char * args[]){
 		}
 		
 		pid=fork();
-		
+
+		child_process[process_index]=pid;
+		process_index++;
+
 		if(pid==-1){			
 			if (i != num_cmds - 1){
 				if (i % 2 != 0){
