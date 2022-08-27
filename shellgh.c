@@ -8,7 +8,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <termios.h>
-#include "util.h"
+// #include "util.h"
 #define clear() printf("\033[H\033[J")
 #define LIMIT 256 // max number of tokens for a command
 #define MAXLINE 1024 // max number of characters from user input
@@ -156,21 +156,21 @@ int manageEnviron(char * args[], int option){
 		// their values
 		case 0: 
 			for(env_aux = environ; *env_aux != 0; env_aux ++){
-				printf("%s\n", *env_aux);
+				printf("%s\n\n", *env_aux);
 			}
 			break;
 		// Case 'setenv': we set an environment variable to a value
 		case 1: 
 			if((args[1] == NULL) && args[2] == NULL){
-				printf("%s","Not enought input arguments\n");
+				printf("%s","Not enought input arguments\n\n");
 				return -1;
 			}
 			
 			// We use different output for new and overwritten variables
 			if(getenv(args[1]) != NULL){
-				printf("%s", "The variable has been overwritten\n");
+				printf("\n%s", "The variable has been overwritten\n\n");
 			}else{
-				printf("%s", "The variable has been created\n");
+				printf("\n%s", "The variable has been created\n\n");
 			}
 			
 			// If we specify no value for the variable, we set it to ""
@@ -184,22 +184,22 @@ int manageEnviron(char * args[], int option){
 		// Case 'unsetenv': we delete an environment variable
 		case 2:
 			if(args[1] == NULL){
-				printf("%s","Not enought input arguments\n");
+				printf("\n%s","Not enought input arguments\n");
 				return -1;
 			}
 			if(getenv(args[1]) != NULL){
 				unsetenv(args[1]);
-				printf("%s", "The variable has been erased\n");
+				printf("\n%s", "The variable has been erased\n");
 			}else{
 				printf("%s", "The variable does not exist\n");
 			}
 		break;
 		case 3:
 			if(getenv(args[1])==NULL){
-				printf("%s","No such variable exist\n");
+				printf("\n%s","No such variable exist\n");
 			}
 			else{
-				printf("%s\n",getenv(args[1]));
+				printf("\n%s\n\n",getenv(args[1]));
 			}
 		break;
 			
@@ -402,12 +402,12 @@ void pipeHandler(char * args[]){
 /**
 * Method used to handle the commands entered via the standard input
 */ 
-int commandHandler(char * args[]){
+int commandHandler(char * args[],int bg){
 	// int x=getpid();
 	// printf("%i",x);
 	int i = 0;
 	int j = 0;
-	int background = 0;
+	int background = bg;
 
 	char *args_aux[256];
 	while ( args[j] != NULL){
@@ -485,14 +485,17 @@ int commandHandler(char * args[]){
 	else if (strcmp(args[0],"getenv") == 0) manageEnviron(args,3);
     else if (strcmp(args[0],"cmd_history")==0){
         //printf("%i",h_index);
+		printf("\n");
         for(int i=0;i<5;i++){
             if(h_index-i-1<0)break;
             printf("%s",cmd_history[h_index-i-1]);
             printf("\n");
         }
+		printf("\n");
         return 1; 
     }
 	else if(strcmp(args[0],"ps_history")==0){
+		printf("\n");
 		for(int i=process_index-1;i>=0;i--){
 			printf("%ld",child_process[i]);
 			if(kill(child_process[i],0)==0){
@@ -502,6 +505,7 @@ int commandHandler(char * args[]){
 				printf(" Stopped \n");
 			}
 		}
+		printf("\n");
 	}
 
 	else{
@@ -542,6 +546,7 @@ int main(int argc, char *argv[], char ** envp) {
 	char line[MAXLINE]; 
 	char * tokens[LIMIT]; 
 	int numTokens;
+	int bg=0;
 	
 	no_reprint_prmpt = 0; 	
 	pid = -10; 
@@ -556,13 +561,16 @@ int main(int argc, char *argv[], char ** envp) {
 		no_reprint_prmpt = 0;
 		memset ( line, '\0', MAXLINE );
 		fgets(line, MAXLINE, stdin);
-		if((tokens[0] = strtok(line," \n\t")) == NULL) continue;
+		if(line[0]=='&'){
+			bg=1;
+		}
+		if((tokens[0] = strtok(line," &\n\t")) == NULL) continue;
 		numTokens = 1;
-		while((tokens[numTokens] = strtok(NULL, " \n\t")) != NULL) numTokens++;
+		while((tokens[numTokens] = strtok(NULL, " &\n\t")) != NULL) numTokens++;
         size_t size = sizeof(line) / sizeof(line[0]);
         cmd_history[h_index]=strndup(line, size);
         h_index++;
-		commandHandler(tokens);
+		commandHandler(tokens,bg);
 	}          
 
 	exit(0);

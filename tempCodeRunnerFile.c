@@ -1,1 +1,1 @@
-%s %s
+#include "util.h"
