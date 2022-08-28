@@ -174,25 +174,34 @@ void launchProg(char **args, int background){
 }
  
 void pipeHandler(char * args[]){
-	int f_descrip[2]; 
-	int f_descrip2[2];
-	int total_cmds = 2;
+	// File descriptors
+	int filedes[2]; // pos. 0 output, pos. 1 input of the pipe
+	int filedes2[2];
+	
+	int num_cmds = 0;
+	
 	char *command[256];
+	
 	pid_t pid;
+	
 	int ERROROR = -1;
 	int end = 0;
+	
+	// Variables used for the different loops
 	int i = 0;
 	int j = 0;
 	int k = 0;
 	int l = 0;
-
+	
+	// First we calculate the number of commands (they are separated
+	// by '|')
 	while (args[l] != NULL){
 		if (strcmp(args[l],"|") == 0){
-			total_cmds++;
+			num_cmds++;
 		}
 		l++;
 	}
-	total_cmds++;
+	num_cmds++;
 	while (args[j] != NULL && end != 1){
 		k = 0;
 		while (strcmp(args[j],"|") != 0){
@@ -205,12 +214,20 @@ void pipeHandler(char * args[]){
 			}
 			k++;
 		}
+		// Last position of the command will be NULL to indicate that
+		// it is its end when we pass it to the exec function
 		command[k] = NULL;
 		j++;		
+		
+		// Depending on whether we are in an iteration or another, we
+		// will set different descriptors for the pipes inputs and
+		// output. This way, a pipe will be shared between each two
+		// iterations, enabling us to connect the inputs and outputs of
+		// the two different commands.
 		if (i % 2 != 0){
-			pipe(f_descrip); 
+			pipe(filedes); // for odd i
 		}else{
-			pipe(f_descrip2); 
+			pipe(filedes2); // for even i
 		}
 		
 		pid=fork();
@@ -219,11 +236,11 @@ void pipeHandler(char * args[]){
 		process_index++;
 
 		if(pid==-1){			
-			if (i != total_cmds - 1){
+			if (i != num_cmds - 1){
 				if (i % 2 != 0){
-					close(f_descrip[1]); 
+					close(filedes[1]); // for odd i
 				}else{
-					close(f_descrip2[1]); 
+					close(filedes2[1]); // for even i
 				} 
 			}			
 			printf("Child process could not be created\n");
@@ -232,20 +249,25 @@ void pipeHandler(char * args[]){
 		if(pid==0){
 			// If we are in the first command
 			if (i == 0){
-				dup2(f_descrip2[1], STDOUT_FILENO);
+				dup2(filedes2[1], STDOUT_FILENO);
 			}
-			else if (i == total_cmds - 1){
-				if (total_cmds % 2 != 0){ // for odd number of commands
-					dup2(f_descrip[0],STDIN_FILENO);
+			else if (i == num_cmds - 1){
+				if (num_cmds % 2 != 0){ // for odd number of commands
+					dup2(filedes[0],STDIN_FILENO);
 				}else{ // for even number of commands
-					dup2(f_descrip2[0],STDIN_FILENO);
+					dup2(filedes2[0],STDIN_FILENO);
 				}
+			// If we are in a command that is in the middle, we will
+			// have to use two pipes, one for input and another for
+			// output. The position is also important in order to choose
+			// which file descriptor corresponds to each input/output
+			}else{ // for odd i
 				if (i % 2 != 0){
-					dup2(f_descrip2[0],STDIN_FILENO); 
-					dup2(f_descrip[1],STDOUT_FILENO);
+					dup2(filedes2[0],STDIN_FILENO); 
+					dup2(filedes[1],STDOUT_FILENO);
 				}else{ // for even i
-					dup2(f_descrip[0],STDIN_FILENO); 
-					dup2(f_descrip2[1],STDOUT_FILENO);					
+					dup2(filedes[0],STDIN_FILENO); 
+					dup2(filedes2[1],STDOUT_FILENO);					
 				} 
 			}
 			
@@ -253,23 +275,24 @@ void pipeHandler(char * args[]){
 				kill(getpid(),SIGTERM);
 			}		
 		}
-
+				
+		// CLOSING DESCRIPTORS ON PARENT
 		if (i == 0){
-			close(f_descrip2[1]);
+			close(filedes2[1]);
 		}
-		else if (i == total_cmds - 1){
-			if (total_cmds % 2 != 0){					
-				close(f_descrip[0]);
+		else if (i == num_cmds - 1){
+			if (num_cmds % 2 != 0){					
+				close(filedes[0]);
 			}else{					
-				close(f_descrip2[0]);
+				close(filedes2[0]);
 			}
 		}else{
 			if (i % 2 != 0){					
-				close(f_descrip2[0]);
-				close(f_descrip[1]);
+				close(filedes2[0]);
+				close(filedes[1]);
 			}else{					
-				close(f_descrip[0]);
-				close(f_descrip2[1]);
+				close(filedes[0]);
+				close(filedes2[1]);
 			}
 		}
 				
