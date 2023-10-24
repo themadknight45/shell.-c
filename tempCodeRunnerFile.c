@@ -1,1 +1,0 @@
-printf("%ld abcd\n",pid);
